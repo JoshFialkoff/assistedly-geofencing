@@ -29,6 +29,8 @@ interface Campaign {
   editUrl: string;
 }
 
+type WorkflowStage = 'Campaigns' | 'Ad Groups' | 'Creatives' | 'Audiences' | 'Placements' | 'Reporting';
+
 const initialCampaigns: Campaign[] = [
   {
     id: 'c1',
@@ -86,6 +88,7 @@ export default function App() {
   const [updatingFacilityId, setUpdatingFacilityId] = useState<string | null>(null);
   const [deployingCampaign, setDeployingCampaign] = useState(false);
   const [campaigns] = useState<Campaign[]>(initialCampaigns);
+  const [activeWorkflowStage, setActiveWorkflowStage] = useState<WorkflowStage>('Campaigns');
 
   const [newFacility, setNewFacility] = useState({ name: '', address: '', radius: 500 });
 
@@ -221,6 +224,14 @@ export default function App() {
   const topPerformingAds = [...campaigns]
     .sort((a, b) => b.ctrPct - a.ctrPct)
     .slice(0, 3);
+  const workflowStages: Array<{ name: WorkflowStage; status: 'Active' | 'Ready' | 'Pending' }> = [
+    { name: 'Campaigns', status: campaigns.some((campaign) => campaign.status === 'Live') ? 'Active' : 'Ready' },
+    { name: 'Ad Groups', status: campaigns.length > 0 ? 'Active' : 'Pending' },
+    { name: 'Creatives', status: topPerformingAds.length > 0 ? 'Active' : 'Pending' },
+    { name: 'Audiences', status: facilities.length > 0 ? 'Active' : 'Pending' },
+    { name: 'Placements', status: campaigns.some((campaign) => campaign.impressions > 0) ? 'Active' : 'Pending' },
+    { name: 'Reporting', status: campaigns.some((campaign) => campaign.conversions > 0) ? 'Ready' : 'Pending' },
+  ];
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans">
@@ -234,6 +245,36 @@ export default function App() {
             <div>
               <h1 className="font-bold text-lg leading-none">MassFence Ad Studio</h1>
               <span className="text-xs text-slate-400">MA Assisted Living Geo-Targeting</span>
+            </div>
+          </div>
+
+          <div className="mb-6 rounded-xl border border-slate-700 bg-slate-900/60">
+            <div className="px-4 py-3 border-b border-slate-700">
+              <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Buyer Workflow</h2>
+            </div>
+            <div className="p-2">
+              {workflowStages.map((stage) => (
+                <button
+                  key={stage.name}
+                  type="button"
+                  onClick={() => setActiveWorkflowStage(stage.name)}
+                  className={`w-full rounded-lg px-3 py-2 mb-1 text-left text-xs flex items-center justify-between transition-colors ${
+                    activeWorkflowStage === stage.name
+                      ? 'bg-indigo-600/20 border border-indigo-500/40 text-indigo-200'
+                      : 'border border-transparent text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  <span>{stage.name}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        stage.status === 'Active' ? 'bg-emerald-400' : stage.status === 'Ready' ? 'bg-amber-400' : 'bg-slate-500'
+                      }`}
+                    />
+                    <span className="text-[10px] text-slate-400">{stage.status}</span>
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -381,9 +422,18 @@ export default function App() {
         {/* Top Analytics Bar */}
         <div className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-8 flex items-center justify-between z-10">
           <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 text-sm text-slate-300">
-              <Layers className="w-4 h-4 text-indigo-400" />
-              <span>Layer: <strong>Massachusetts Assisted Living Registry</strong></span>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>Buyer Workflow</span>
+                <span>›</span>
+                <span>Campaign Manager</span>
+                <span>›</span>
+                <span className="text-slate-200">{activeWorkflowStage}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-300">
+                <Layers className="w-4 h-4 text-indigo-400" />
+                <span>Layer: <strong>Massachusetts Assisted Living Registry</strong></span>
+              </div>
             </div>
             <div className="flex items-center gap-2 text-sm text-slate-300">
               <Users className="w-4 h-4 text-emerald-400" />
