@@ -21,6 +21,12 @@ export default function App() {
   const [deployingCampaign, setDeployingCampaign] = useState(false);
 
   const [newFacility, setNewFacility] = useState({ name: '', address: '', radius: 500 });
+  const navigationItems = [
+    { id: 'new-facility', label: 'New Facility' },
+    { id: 'fenced-facilities', label: 'Fenced Facilities' },
+    { id: 'campaign-controls', label: 'Campaign Controls' },
+    { id: 'map-overview', label: 'Map Overview' },
+  ];
 
   // Fetch facilities from backend on mount
   useEffect(() => {
@@ -150,6 +156,13 @@ export default function App() {
     }
   };
 
+  const handleNavigateToSection = (sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  };
+
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans">
       {/* Sidebar Controls */}
@@ -164,6 +177,21 @@ export default function App() {
               <span className="text-xs text-slate-400">MA Assisted Living Geo-Targeting</span>
             </div>
           </div>
+          <nav aria-label="Primary" className="mb-6">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Navigation</p>
+            <div className="grid grid-cols-2 gap-2">
+              {navigationItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNavigateToSection(item.id)}
+                  className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2 text-left text-xs font-medium text-slate-200 transition-colors hover:border-indigo-500 hover:text-white"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </nav>
 
           {/* Error Banner */}
           {error && (
@@ -180,7 +208,7 @@ export default function App() {
           )}
 
           {/* Add New Geofence Section */}
-          <div className="mb-8">
+          <div id="new-facility" className="mb-8 scroll-mt-6">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Plus className="w-3.5 h-3.5" /> Target New Facility
             </h2>
@@ -228,7 +256,7 @@ export default function App() {
           </div>
 
           {/* Active Fenced Locations */}
-          <div>
+          <div id="fenced-facilities" className="scroll-mt-6">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <Building className="w-3.5 h-3.5" /> Fenced Facilities ({facilities.length})
             </h2>
@@ -307,7 +335,7 @@ export default function App() {
       {/* Main Map / Operations Panel */}
       <div className="flex-1 flex flex-col relative">
         {/* Top Analytics Bar */}
-        <div className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-8 flex items-center justify-between z-10">
+        <div id="campaign-controls" className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-8 flex items-center justify-between z-10 scroll-mt-6">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-sm text-slate-300">
               <Layers className="w-4 h-4 text-indigo-400" />
@@ -329,7 +357,7 @@ export default function App() {
         </div>
 
         {/* Map Placeholder Viewport */}
-        <div className="flex-1 bg-slate-950 relative flex items-center justify-center overflow-hidden">
+        <div id="map-overview" className="flex-1 bg-slate-950 relative flex items-center justify-center overflow-hidden scroll-mt-6">
           {/* Mock Map Background Grid */}
           <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#4f4f4f_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f_1px,transparent_1px)] bg-[size:4rem_4rem]"></div>
 
