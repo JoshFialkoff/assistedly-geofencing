@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { MapPin, Target, Layers, Users, Building, Plus, Play, Pause } from 'lucide-react';
+import { MapPin, Target, Layers, Users, Building, Plus, Play } from 'lucide-react';
+import GeosheetImporter from './components/GeosheetImporter';
 
 interface Facility {
   id: string;
@@ -91,6 +92,11 @@ export default function App() {
                 Create Fence Radius
               </button>
             </form>
+          </div>
+
+          {/* Import & Geocode from Google Sheet */}
+          <div className="mb-8">
+            <GeosheetImporter />
           </div>
 
           {/* Active Fenced Locations */}
