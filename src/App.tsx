@@ -11,6 +11,13 @@ interface Facility {
   lon: number | null;
 }
 
+const navigationItems = [
+  { id: 'new-facility', label: 'New Facility' },
+  { id: 'fenced-facilities', label: 'Fenced Facilities' },
+  { id: 'campaign-controls', label: 'Campaign Controls' },
+  { id: 'map-overview', label: 'Map Overview' },
+];
+
 export default function App() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,12 +28,6 @@ export default function App() {
   const [deployingCampaign, setDeployingCampaign] = useState(false);
 
   const [newFacility, setNewFacility] = useState({ name: '', address: '', radius: 500 });
-  const navigationItems = [
-    { id: 'new-facility', label: 'New Facility' },
-    { id: 'fenced-facilities', label: 'Fenced Facilities' },
-    { id: 'campaign-controls', label: 'Campaign Controls' },
-    { id: 'map-overview', label: 'Map Overview' },
-  ];
 
   // Fetch facilities from backend on mount
   useEffect(() => {
@@ -157,8 +158,9 @@ export default function App() {
   };
 
   const handleNavigateToSection = (sectionId: string) => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById(sectionId)?.scrollIntoView({
-      behavior: 'smooth',
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
       block: 'start',
     });
   };
