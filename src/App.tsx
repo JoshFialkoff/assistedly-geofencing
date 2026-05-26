@@ -28,6 +28,7 @@ export default function App() {
   const [deployingCampaign, setDeployingCampaign] = useState(false);
 
   const [newFacility, setNewFacility] = useState({ name: '', address: '', radius: 500 });
+  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // Fetch facilities from backend on mount
   useEffect(() => {
@@ -158,7 +159,6 @@ export default function App() {
   };
 
   const handleNavigateToSection = (sectionId: string) => {
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     document.getElementById(sectionId)?.scrollIntoView({
       behavior: prefersReducedMotion ? 'auto' : 'smooth',
       block: 'start',
