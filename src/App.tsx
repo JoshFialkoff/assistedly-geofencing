@@ -136,8 +136,14 @@ export default function App() {
   };
 
   const handleDeleteFacility = async (id: string) => {
+    setError(null);
+    setStatusMessage(null);
     try {
-      await fetch(`/api/facilities/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/facilities/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server error: ${res.status}`);
+      }
       setFacilities(prev => prev.filter(f => f.id !== id));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
