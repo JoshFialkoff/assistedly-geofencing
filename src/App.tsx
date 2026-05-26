@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Target, Layers, Users, Building, Plus, Play, Trash2, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
+import { MapPin, Target, Layers, Users, Building, Plus, Play, Trash2, AlertCircle, Loader2, CheckCircle2, BarChart3, ExternalLink, PencilLine, Copy, PauseCircle } from 'lucide-react';
 
 interface Facility {
   id: string;
@@ -11,6 +11,72 @@ interface Facility {
   lon: number | null;
 }
 
+type CampaignStatus = 'Live' | 'Learning' | 'Paused';
+
+interface Campaign {
+  id: string;
+  name: string;
+  facilityId: string;
+  status: CampaignStatus;
+  spendUsd: number;
+  budgetUsd: number;
+  impressions: number;
+  ctrPct: number;
+  conversions: number;
+  cpaUsd: number;
+  topAdCopy: string;
+  viewUrl: string;
+  editUrl: string;
+}
+
+const initialCampaigns: Campaign[] = [
+  {
+    id: 'c1',
+    name: 'Lexington Family Discovery',
+    facilityId: '1',
+    status: 'Live',
+    spendUsd: 1820,
+    budgetUsd: 2400,
+    impressions: 58320,
+    ctrPct: 1.72,
+    conversions: 74,
+    cpaUsd: 24.59,
+    topAdCopy: 'Schedule a private assisted-living tour this week.',
+    viewUrl: 'https://dsp.example.com/campaigns/c1',
+    editUrl: 'https://dsp.example.com/campaigns/c1/edit',
+  },
+  {
+    id: 'c2',
+    name: 'Newton Weekend Funnel',
+    facilityId: '2',
+    status: 'Learning',
+    spendUsd: 980,
+    budgetUsd: 1600,
+    impressions: 34110,
+    ctrPct: 1.29,
+    conversions: 33,
+    cpaUsd: 29.7,
+    topAdCopy: 'Compare nearby assisted living options in minutes.',
+    viewUrl: 'https://dsp.example.com/campaigns/c2',
+    editUrl: 'https://dsp.example.com/campaigns/c2/edit',
+  },
+  {
+    id: 'c3',
+    name: 'Boston High-Intent Retargeting',
+    facilityId: '3',
+    status: 'Paused',
+    spendUsd: 600,
+    budgetUsd: 1400,
+    impressions: 20440,
+    ctrPct: 0.88,
+    conversions: 14,
+    cpaUsd: 42.86,
+    topAdCopy: 'Find care options with transparent pricing today.',
+    viewUrl: 'https://dsp.example.com/campaigns/c3',
+    editUrl: 'https://dsp.example.com/campaigns/c3/edit',
+  },
+];
+
 export default function App() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,6 +85,7 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [updatingFacilityId, setUpdatingFacilityId] = useState<string | null>(null);
   const [deployingCampaign, setDeployingCampaign] = useState(false);
+  const [campaigns] = useState<Campaign[]>(initialCampaigns);
 
   const [newFacility, setNewFacility] = useState({ name: '', address: '', radius: 500 });
 
@@ -149,6 +216,11 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  const facilityNameById = new Map(facilities.map((facility) => [facility.id, facility.name]));
+  const topPerformingAds = [...campaigns]
+    .sort((a, b) => b.ctrPct - a.ctrPct)
+    .slice(0, 3);
 
   return (
     <div className="flex h-screen bg-slate-900 text-slate-100 font-sans">
@@ -329,7 +401,7 @@ export default function App() {
         </div>
 
         {/* Map Placeholder Viewport */}
-        <div className="flex-1 bg-slate-950 relative flex items-center justify-center overflow-hidden">
+        <div className="flex-1 bg-slate-950 relative flex items-center justify-center overflow-hidden min-h-[320px]">
           {/* Mock Map Background Grid */}
           <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#4f4f4f_1px,transparent_1px),linear-gradient(to_bottom,#4f4f4f_1px,transparent_1px)] bg-[size:4rem_4rem]"></div>
 
@@ -366,6 +438,108 @@ export default function App() {
 
           <div className="absolute bottom-1/3 right-1/4 w-40 h-40 rounded-full bg-rose-500/10 border-2 border-rose-500/30 flex items-center justify-center animate-ping [animation-duration:4s]"></div>
           <div className="absolute bottom-1/3 right-1/4 w-4 h-4 rounded-full bg-rose-500 border-2 border-white shadow-lg"></div>
+        </div>
+
+        {/* Campaign Operations Tools */}
+        <div className="border-t border-slate-800 bg-slate-900/70 p-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2 rounded-xl border border-slate-800 bg-slate-900/80">
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-indigo-400" />
+                  Campaign Status Table
+                </h3>
+                <span className="text-xs text-slate-400">{campaigns.length} tracked campaigns</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-slate-400 bg-slate-900">
+                    <tr>
+                      <th className="text-left font-medium px-4 py-2">Campaign</th>
+                      <th className="text-left font-medium px-4 py-2">Facility</th>
+                      <th className="text-left font-medium px-4 py-2">Status</th>
+                      <th className="text-left font-medium px-4 py-2">Delivery</th>
+                      <th className="text-left font-medium px-4 py-2">Top Ad Copy</th>
+                      <th className="text-left font-medium px-4 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-200">
+                    {campaigns.map((campaign) => (
+                      <tr key={campaign.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{campaign.name}</div>
+                          <div className="text-slate-400 mt-0.5">
+                            {campaign.impressions.toLocaleString()} impressions · CTR {campaign.ctrPct.toFixed(2)}%
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">{facilityNameById.get(campaign.facilityId) ?? 'Unassigned'}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`px-2 py-1 rounded-full text-[10px] font-medium ${
+                              campaign.status === 'Live'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : campaign.status === 'Learning'
+                                  ? 'bg-amber-500/10 text-amber-400'
+                                  : 'bg-slate-700 text-slate-300'
+                            }`}
+                          >
+                            {campaign.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          ${campaign.spendUsd.toLocaleString()} / ${campaign.budgetUsd.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 max-w-64 text-slate-300 truncate" title={campaign.topAdCopy}>
+                          {campaign.topAdCopy}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 text-slate-300">
+                            <a href={campaign.viewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-indigo-300">
+                              <ExternalLink className="w-3.5 h-3.5" /> View
+                            </a>
+                            <a href={campaign.editUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-emerald-300">
+                              <PencilLine className="w-3.5 h-3.5" /> Edit
+                            </a>
+                            <button type="button" className="inline-flex items-center gap-1 hover:text-slate-100">
+                              <Copy className="w-3.5 h-3.5" /> Duplicate
+                            </button>
+                            <button type="button" className="inline-flex items-center gap-1 hover:text-rose-300">
+                              <PauseCircle className="w-3.5 h-3.5" /> Pause
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
+              <h3 className="text-sm font-semibold text-slate-200 mb-3">Top-Performing Ad Copy</h3>
+              <div className="space-y-3">
+                {topPerformingAds.map((campaign, idx) => (
+                  <div key={campaign.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                      <span>#{idx + 1} by CTR</span>
+                      <span>{campaign.ctrPct.toFixed(2)}% CTR · ${campaign.cpaUsd.toFixed(2)} CPA</span>
+                    </div>
+                    <div className="text-xs text-slate-100 mb-1">{campaign.topAdCopy}</div>
+                    <div className="text-[10px] text-slate-400">{campaign.name}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3">
+                <h4 className="text-xs font-semibold text-indigo-300 mb-2">DSP 2026 Best Practices</h4>
+                <ul className="space-y-1 text-[11px] text-slate-300 list-disc ml-4">
+                  <li>Refresh creative every 10–14 days to reduce fatigue in geo-fenced audiences.</li>
+                  <li>Use separate retargeting and prospecting lines with distinct CPA targets.</li>
+                  <li>Prioritize first-party audience overlays and privacy-safe contextual segments.</li>
+                  <li>Keep a clear view/edit workflow for each campaign to speed optimization loops.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
