@@ -11,6 +11,11 @@ interface Facility {
   lon: number | null;
 }
 
+interface GeocodedFacility extends Facility {
+  lat: number;
+  lon: number;
+}
+
 type CampaignStatus = 'Live' | 'Learning' | 'Paused';
 
 interface Campaign {
@@ -224,6 +229,9 @@ export default function App() {
   const topPerformingAds = [...campaigns]
     .sort((a, b) => b.ctrPct - a.ctrPct)
     .slice(0, 3);
+  const geocodedFacilities = facilities.filter(
+    (facility): facility is GeocodedFacility => facility.lat !== null && facility.lon !== null,
+  );
   const workflowStages: Array<{ name: WorkflowStage; status: 'Active' | 'Ready' | 'Pending' }> = [
     { name: 'Campaigns', status: campaigns.some((campaign) => campaign.status === 'Live') ? 'Active' : 'Ready' },
     { name: 'Ad Groups', status: campaigns.length > 0 ? 'Active' : 'Pending' },
@@ -469,13 +477,13 @@ export default function App() {
               <span className="px-2 py-1">Polygon Mode Enabled</span>
             </div>
             {/* Live coordinate list from geocoded facilities */}
-            {facilities.filter(f => f.lat !== null).length > 0 && (
+            {geocodedFacilities.length > 0 && (
               <div className="mt-4 text-left bg-slate-900/80 border border-slate-800 rounded-lg p-3 text-[10px] font-mono text-slate-400 max-h-32 overflow-y-auto">
-                {facilities.filter(f => f.lat !== null).map(f => (
+                {geocodedFacilities.map(f => (
                   <div key={f.id} className="flex items-center gap-2 py-0.5">
                     <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
                     <span className="text-slate-300 truncate">{f.name}</span>
-                    <span className="ml-auto shrink-0">{f.lat!.toFixed(4)}, {f.lon!.toFixed(4)}</span>
+                    <span className="ml-auto shrink-0">{f.lat.toFixed(4)}, {f.lon.toFixed(4)}</span>
                   </div>
                 ))}
               </div>
