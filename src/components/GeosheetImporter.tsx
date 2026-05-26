@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { Download, FileSpreadsheet, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import React, { useCallback, useRef, useState } from 'react';
+import { Download, FileSpreadsheet, KeyRound, Loader2, CheckCircle, AlertCircle, LogOut, TableProperties } from 'lucide-react';
 
 const GEOAPIFY_API_KEY = '1b3f322763ae4130b42cda53d75aed18';
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+
 const DEFAULT_SHEET_URL =
   'https://docs.google.com/spreadsheets/d/1KFtnF7L8rylYCr9Fg58qmf43dC-cSpGkzuHE5cShKEk/edit?usp=sharing';
 
@@ -11,6 +14,8 @@ interface GeocodedRow {
   longitude: string;
   geocode_status: string;
 }
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
 function extractSheetId(url: string): string | null {
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -52,11 +57,10 @@ function toCSVString(rows: Record<string, string>[]): string {
   if (rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
   const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  const lines = [
+  return [
     headers.map(escape).join(','),
     ...rows.map(row => headers.map(h => escape(row[h] ?? '')).join(',')),
-  ];
-  return lines.join('\r\n');
+  ].join('\r\n');
 }
 
 function downloadCSVFile(content: string, filename: string) {
@@ -70,11 +74,7 @@ function downloadCSVFile(content: string, filename: string) {
 }
 
 async function geocodeAddress(address: string): Promise<{ lat: string; lon: string } | null> {
-  const params = new URLSearchParams({
-    text: address,
-    format: 'json',
-    apiKey: GEOAPIFY_API_KEY,
-  });
+  const params = new URLSearchParams({ text: address, format: 'json', apiKey: GEOAPIFY_API_KEY });
   const res = await fetch(`https://api.geoapify.com/v1/geocode/search?${params}`);
   if (!res.ok) return null;
   const data = await res.json();
@@ -83,23 +83,108 @@ async function geocodeAddress(address: string): Promise<{ lat: string; lon: stri
   return { lat: String(first.lat), lon: String(first.lon) };
 }
 
+/** Write values to columns F & G starting at row 2 via Sheets API v4. */
+async function writeSheetsLatLon(
+  sheetId: string,
+  accessToken: string,
+  rows: GeocodedRow[],
+): Promise<void> {
+  const values = rows.map(r => [r.latitude, r.longitude]);
+  const range = `F2:G${rows.length + 1}`;
+  const url =
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}` +
+    `?valueInputOption=RAW`;
+
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ range, majorDimension: 'ROWS', values }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `HTTP ${res.status}`);
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+type MainStatus = 'idle' | 'fetching' | 'geocoding' | 'done' | 'error';
+type WriteStatus = 'idle' | 'writing' | 'written' | 'error';
+
 export default function GeosheetImporter() {
   const [sheetUrl, setSheetUrl] = useState(DEFAULT_SHEET_URL);
-  const [status, setStatus] = useState<'idle' | 'fetching' | 'geocoding' | 'done' | 'error'>('idle');
+  const [mainStatus, setMainStatus] = useState<MainStatus>('idle');
+  const [writeStatus, setWriteStatus] = useState<WriteStatus>('idle');
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<GeocodedRow[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
+  const [writeError, setWriteError] = useState('');
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+
+  // Ref to the GSI token client (created lazily)
+  const tokenClientRef = useRef<ReturnType<typeof window.google.accounts.oauth2.initTokenClient> | null>(null);
+
+  // ── Google OAuth ──────────────────────────────────────────────────────────
+
+  const handleSignIn = useCallback(() => {
+    if (!window.google) {
+      setErrorMsg('Google Identity Services script has not loaded yet. Please refresh the page.');
+      setMainStatus('error');
+      return;
+    }
+    if (!GOOGLE_CLIENT_ID) {
+      setErrorMsg(
+        'VITE_GOOGLE_CLIENT_ID is not set. Add it to your .env file (see .env.example).',
+      );
+      setMainStatus('error');
+      return;
+    }
+
+    if (!tokenClientRef.current) {
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SHEETS_SCOPE,
+        callback: (resp) => {
+          if (resp.error) {
+            setErrorMsg(`Google sign-in failed: ${resp.error}`);
+            setMainStatus('error');
+          } else {
+            setAccessToken(resp.access_token);
+            setMainStatus('idle');
+            setErrorMsg('');
+          }
+        },
+      });
+    }
+    tokenClientRef.current.requestAccessToken({ prompt: '' });
+  }, []);
+
+  const handleSignOut = useCallback(() => {
+    if (accessToken && window.google) {
+      window.google.accounts.oauth2.revoke(accessToken);
+    }
+    setAccessToken(null);
+    tokenClientRef.current = null;
+  }, [accessToken]);
+
+  // ── Geocoding run ─────────────────────────────────────────────────────────
 
   const handleRun = async () => {
     const sheetId = extractSheetId(sheetUrl);
     if (!sheetId) {
       setErrorMsg('Could not extract Sheet ID from URL. Please paste the full Google Sheets URL.');
-      setStatus('error');
+      setMainStatus('error');
       return;
     }
 
-    setStatus('fetching');
+    setMainStatus('fetching');
+    setWriteStatus('idle');
     setErrorMsg('');
+    setWriteError('');
     setResults([]);
 
     let csvText: string;
@@ -109,26 +194,22 @@ export default function GeosheetImporter() {
       csvText = await res.text();
     } catch (e) {
       setErrorMsg(`Failed to fetch Google Sheet: ${(e as Error).message}`);
-      setStatus('error');
+      setMainStatus('error');
       return;
     }
 
     const rows = parseCSV(csvText);
     if (rows.length < 2) {
       setErrorMsg('Sheet appears to be empty or has no data rows.');
-      setStatus('error');
+      setMainStatus('error');
       return;
     }
 
     const headers = rows[0];
     const dataRows = rows.slice(1);
+    const addressColIdx = headers.findIndex(h => /address/i.test(h));
 
-    // Detect the address column heuristically
-    const addressColIdx = headers.findIndex(h =>
-      /address/i.test(h)
-    );
-
-    setStatus('geocoding');
+    setMainStatus('geocoding');
     setProgress({ current: 0, total: dataRows.length });
 
     const geocoded: GeocodedRow[] = [];
@@ -136,18 +217,12 @@ export default function GeosheetImporter() {
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
       const rowObj: Record<string, string> = {};
-      headers.forEach((h, idx) => {
-        rowObj[h] = row[idx] ?? '';
-      });
+      headers.forEach((h, idx) => { rowObj[h] = row[idx] ?? ''; });
 
-      // Build address string: use detected address column, or join all columns
-      let addressText = '';
-      if (addressColIdx >= 0) {
-        addressText = row[addressColIdx] ?? '';
-      } else {
-        // Fallback: join all non-empty cells
-        addressText = row.filter(Boolean).join(', ');
-      }
+      const addressText =
+        addressColIdx >= 0
+          ? (row[addressColIdx] ?? '')
+          : row.filter(Boolean).join(', ');
 
       let lat = '';
       let lon = '';
@@ -156,33 +231,44 @@ export default function GeosheetImporter() {
       if (addressText.trim()) {
         try {
           const result = await geocodeAddress(addressText);
-          if (result) {
-            lat = result.lat;
-            lon = result.lon;
-            geocodeStatus = 'ok';
-          }
+          if (result) { lat = result.lat; lon = result.lon; geocodeStatus = 'ok'; }
         } catch {
           geocodeStatus = 'error';
         }
       }
 
-      geocoded.push({
-        ...rowObj,
-        latitude: lat,
-        longitude: lon,
-        geocode_status: geocodeStatus,
-      } as GeocodedRow);
-
+      geocoded.push({ ...rowObj, latitude: lat, longitude: lon, geocode_status: geocodeStatus } as GeocodedRow);
       setProgress({ current: i + 1, total: dataRows.length });
     }
 
     setResults(geocoded);
-    setStatus('done');
+    setMainStatus('done');
   };
 
-  const handleDownload = () => {
-    downloadCSVFile(toCSVString(results), 'geocoded_facilities.csv');
+  // ── Write-back to Google Sheet ────────────────────────────────────────────
+
+  const handleWriteSheet = async () => {
+    if (!accessToken) { handleSignIn(); return; }
+    const sheetId = extractSheetId(sheetUrl);
+    if (!sheetId) return;
+
+    setWriteStatus('writing');
+    setWriteError('');
+    try {
+      await writeSheetsLatLon(sheetId, accessToken, results);
+      setWriteStatus('written');
+    } catch (e) {
+      setWriteError((e as Error).message);
+      setWriteStatus('error');
+    }
   };
+
+  const handleDownload = () => downloadCSVFile(toCSVString(results), 'geocoded_facilities.csv');
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const isBusy = mainStatus === 'fetching' || mainStatus === 'geocoding';
+  const isDone = mainStatus === 'done';
 
   return (
     <div className="space-y-4">
@@ -191,6 +277,34 @@ export default function GeosheetImporter() {
       </h2>
 
       <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 space-y-3">
+
+        {/* Google auth status */}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-400">Google Account</span>
+          {accessToken ? (
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1 text-xs text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-md transition-colors"
+            >
+              <LogOut className="w-3 h-3" /> Sign out
+            </button>
+          ) : (
+            <button
+              onClick={handleSignIn}
+              className="flex items-center gap-1 text-xs text-white bg-indigo-600 hover:bg-indigo-500 px-2 py-1 rounded-md transition-colors"
+            >
+              <KeyRound className="w-3 h-3" /> Connect Google
+            </button>
+          )}
+        </div>
+
+        {accessToken && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-400">
+            <CheckCircle className="w-3 h-3" /> Google account connected
+          </div>
+        )}
+
+        {/* Sheet URL */}
         <div>
           <label className="block text-xs text-slate-400 mb-1">Google Sheets URL</label>
           <input
@@ -202,24 +316,24 @@ export default function GeosheetImporter() {
           />
         </div>
 
+        {/* Geocode button */}
         <button
           onClick={handleRun}
-          disabled={status === 'fetching' || status === 'geocoding'}
+          disabled={isBusy}
           className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
         >
-          {(status === 'fetching' || status === 'geocoding') ? (
+          {isBusy ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              {status === 'fetching' ? 'Fetching sheet…' : `Geocoding ${progress.current}/${progress.total}…`}
+              {mainStatus === 'fetching' ? 'Fetching sheet…' : `Geocoding ${progress.current}/${progress.total}…`}
             </>
           ) : (
-            <>
-              <FileSpreadsheet className="w-4 h-4" /> Fetch &amp; Geocode Addresses
-            </>
+            <><FileSpreadsheet className="w-4 h-4" /> Fetch &amp; Geocode Addresses</>
           )}
         </button>
 
-        {status === 'geocoding' && progress.total > 0 && (
+        {/* Progress bar */}
+        {mainStatus === 'geocoding' && progress.total > 0 && (
           <div className="w-full bg-slate-700 rounded-full h-1.5">
             <div
               className="bg-indigo-500 h-1.5 rounded-full transition-all"
@@ -228,14 +342,16 @@ export default function GeosheetImporter() {
           </div>
         )}
 
-        {status === 'error' && (
+        {/* Error */}
+        {mainStatus === 'error' && (
           <div className="flex items-start gap-2 text-rose-400 text-xs bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        {status === 'done' && (
+        {/* Done: actions */}
+        {isDone && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-emerald-400 text-xs">
               <CheckCircle className="w-4 h-4" />
@@ -243,17 +359,47 @@ export default function GeosheetImporter() {
                 Geocoded {results.filter(r => r.geocode_status === 'ok').length} of {results.length} addresses successfully.
               </span>
             </div>
+
+            {/* Download CSV */}
             <button
               onClick={handleDownload}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full bg-slate-700 hover:bg-slate-600 text-white font-medium text-sm py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Download className="w-4 h-4" /> Download CSV
             </button>
+
+            {/* Write back to sheet */}
+            <button
+              onClick={handleWriteSheet}
+              disabled={writeStatus === 'writing'}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {writeStatus === 'writing' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Writing to sheet…</>
+              ) : (
+                <><TableProperties className="w-4 h-4" /> Update Google Sheet (col F &amp; G)</>
+              )}
+            </button>
+
+            {writeStatus === 'written' && (
+              <div className="flex items-center gap-2 text-emerald-400 text-xs">
+                <CheckCircle className="w-4 h-4" />
+                Latitude &amp; longitude written to columns F &amp; G ✓
+              </div>
+            )}
+
+            {writeStatus === 'error' && (
+              <div className="flex items-start gap-2 text-rose-400 text-xs bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>Sheet write failed: {writeError}</span>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {status === 'done' && results.length > 0 && (
+      {/* Preview table */}
+      {isDone && results.length > 0 && (
         <div className="bg-slate-900/60 rounded-xl border border-slate-700 overflow-hidden">
           <div className="p-3 border-b border-slate-700 text-xs text-slate-400 font-medium">
             Preview ({Math.min(results.length, 5)} of {results.length} rows)
@@ -263,9 +409,7 @@ export default function GeosheetImporter() {
               <thead>
                 <tr className="border-b border-slate-700">
                   {Object.keys(results[0]).map(h => (
-                    <th key={h} className="text-left px-3 py-2 text-slate-400 font-medium whitespace-nowrap">
-                      {h}
-                    </th>
+                    <th key={h} className="text-left px-3 py-2 text-slate-400 font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -273,9 +417,7 @@ export default function GeosheetImporter() {
                 {results.slice(0, 5).map((row, i) => (
                   <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/40">
                     {Object.values(row).map((v, j) => (
-                      <td key={j} className="px-3 py-2 whitespace-nowrap max-w-[150px] truncate">
-                        {v}
-                      </td>
+                      <td key={j} className="px-3 py-2 whitespace-nowrap max-w-[150px] truncate">{v}</td>
                     ))}
                   </tr>
                 ))}
