@@ -199,7 +199,7 @@ async function generateAdCreatives(facility, adsToGenerate = 3) {
         throw new Error("Dify response is not a list of ads.");
     }
 
-    return generatedAdsData.map((adData: any) => ({
+    return generatedAdsData.map((adData) => ({
       id: randomUUID(),
       facilityId: facility.id,
       name: adData.name || `${facility.name} Ad (${priceTier})`,
