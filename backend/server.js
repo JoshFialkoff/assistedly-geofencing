@@ -41,6 +41,46 @@ const facilities = [
   },
 ];
 
+// In-memory ad store
+const ads = [
+  {
+    id: randomUUID(),
+    facilityId: '1',
+    name: 'Senior Care Special - Boston',
+    headline: 'Compassionate Care for Your Loved Ones',
+    body: 'Experience world-class assisted living with personalized care plans.',
+    cta: 'Schedule a Tour',
+    status: 'active',
+    budget: 50,
+    impressions: 1200,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: randomUUID(),
+    facilityId: '1',
+    name: 'Family Visit Weekend - Boston',
+    headline: 'Special Family Weekend Rates',
+    body: 'Bring your family for a weekend visit at our discounted rates.',
+    cta: 'Book Now',
+    status: 'draft',
+    budget: 30,
+    impressions: 800,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: randomUUID(),
+    facilityId: '2',
+    name: 'Worcester Wellness Program',
+    headline: 'Holistic Health & Wellness Programs',
+    body: 'Join our comprehensive wellness programs designed for seniors.',
+    cta: 'Learn More',
+    status: 'active',
+    budget: 40,
+    impressions: 950,
+    createdAt: new Date().toISOString(),
+  },
+];
+
 // Geocode an address string using the Geoapify API
 async function geocode(address) {
   if (!GEOAPIFY_API_KEY) {
@@ -110,6 +150,71 @@ app.delete('/api/facilities/:id', (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Not found' });
   facilities.splice(idx, 1);
   res.status(204).end();
+});
+
+// GET /api/ads — list all ads (optionally filter by facilityId)
+app.get('/api/ads', (req, res) => {
+  const { facilityId } = req.query;
+  if (facilityId) {
+    return res.json(ads.filter(a => a.facilityId === facilityId));
+  }
+  res.json(ads);
+});
+
+// POST /api/ads — create a new ad for a facility
+app.post('/api/ads', (req, res) => {
+  const { facilityId, name, headline, body, cta, budget } = req.body;
+  if (!facilityId || !name) {
+    return res.status(400).json({ error: 'facilityId and name are required' });
+  }
+  if (!facilities.find(f => f.id === facilityId)) {
+    return res.status(404).json({ error: 'Facility not found' });
+  }
+  const ad = {
+    id: randomUUID(),
+    facilityId,
+    name,
+    headline: headline || '',
+    body: body || '',
+    cta: cta || 'Learn More',
+    status: 'draft',
+    budget: Number(budget) || 0,
+    impressions: 0,
+    createdAt: new Date().toISOString(),
+  };
+  ads.push(ad);
+  res.status(201).json(ad);
+});
+
+// PATCH /api/ads/:id — update ad fields
+app.patch('/api/ads/:id', (req, res) => {
+  const ad = ads.find(a => a.id === req.params.id);
+  if (!ad) return res.status(404).json({ error: 'Ad not found' });
+
+  const { name, headline, body, cta, status, budget } = req.body;
+  if (name !== undefined) ad.name = name;
+  if (headline !== undefined) ad.headline = headline;
+  if (body !== undefined) ad.body = body;
+  if (cta !== undefined) ad.cta = cta;
+  if (status !== undefined) ad.status = status;
+  if (budget !== undefined) ad.budget = Number(budget);
+  res.json(ad);
+});
+
+// DELETE /api/ads/:id — remove an ad
+app.delete('/api/ads/:id', (req, res) => {
+  const idx = ads.findIndex(a => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Ad not found' });
+  ads.splice(idx, 1);
+  res.status(204).end();
+});
+
+// PATCH /api/ads/:id/deploy — activate a draft/paused ad
+app.patch('/api/ads/:id/deploy', (req, res) => {
+  const ad = ads.find(a => a.id === req.params.id);
+  if (!ad) return res.status(404).json({ error: 'Ad not found' });
+  ad.status = 'active';
+  res.json(ad);
 });
 
 app.listen(PORT, () => {
