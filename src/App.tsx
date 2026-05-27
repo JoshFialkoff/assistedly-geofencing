@@ -202,50 +202,45 @@ export default function App() {
       return;
     }
 
-    const facilitiesNeedingActivation = facilities.filter(f => f.activeCampaigns === 0);
-    const draftAds = ads.filter(ad => ad.status === 'draft');
-
-    if (facilitiesNeedingActivation.length === 0 && draftAds.length === 0) {
-      setStatusMessage('Campaign already live for all fenced facilities and draft ads.');
-      return;
-    }
-
     setDeployingCampaign(true);
     setError(null);
     setStatusMessage(null);
     try {
-      const updatedFacilities = await Promise.all(
-        facilitiesNeedingActivation.map(async facility => {
-          const res = await fetch(`/api/facilities/${facility.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ activeCampaigns: 1 }),
-          });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.error || `Server error: ${res.status}`);
-          }
-          return res.json() as Promise<Facility>;
-        }),
-      );
+      // Trigger deploy-campaign on backend for each facility to generate and deploy ads via Dify
+      const deployPromises = facilities.map(async (facility) => {
+        const res = await fetch('/api/deploy-campaign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ facilityId: facility.id }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `Server error: ${res.status}`);
+        }
+        return res.json() as Promise<{ message: string; generatedAds: Ad[]; updatedFacility: Facility }>;
+      });
 
-      const updatedAds = await Promise.all(
-        draftAds.map(async ad => {
-          const res = await fetch(`/api/ads/${ad.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'active' }),
-          });
-          if (!res.ok) throw new Error(`Ad deploy failed: ${res.status}`);
-          return res.json() as Promise<Ad>;
-        }),
-      );
+      const results = await Promise.all(deployPromises);
+      
+      // Merge new ads and update facilities in state
+      const newlyGeneratedAds: Ad[] = [];
+      const updatedFacilitiesMap = new Map<string, Facility>();
 
-      const updatedFacilitiesById = new Map(updatedFacilities.map(f => [f.id, f]));
-      const updatedAdsById = new Map(updatedAds.map(ad => [ad.id, ad]));
-      setFacilities(prev => prev.map(f => updatedFacilitiesById.get(f.id) ?? f));
-      setAds(prev => prev.map(ad => updatedAdsById.get(ad.id) ?? ad));
-      setStatusMessage(`Campaign deployed to ${updatedFacilities.length} facility${updatedFacilities.length === 1 ? '' : 'ies'} and activated ${updatedAds.length} ad${updatedAds.length === 1 ? '' : 's'}.`);
+      results.forEach(res => {
+        newlyGeneratedAds.push(...res.generatedAds);
+        updatedFacilitiesMap.set(res.updatedFacility.id, res.updatedFacility);
+      });
+
+      setFacilities(prev => prev.map(f => updatedFacilitiesMap.get(f.id) ?? f));
+      setAds(prev => {
+        // Mark existing draft/paused ads for those facilities as active as well
+        const activatedExisting = prev.map(ad => 
+          ad.status !== 'active' ? { ...ad, status: 'active' as const } : ad
+        );
+        return [...activatedExisting, ...newlyGeneratedAds];
+      });
+
+      setStatusMessage(`Campaign deployed successfully! AI generated ${newlyGeneratedAds.length} relevant ads across ${facilities.length} targeted facilities.`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

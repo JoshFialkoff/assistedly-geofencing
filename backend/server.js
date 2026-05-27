@@ -81,30 +81,198 @@ const ads = [
   },
 ];
 
-// Geocode an address string using the Geoapify API
-async function geocode(address) {
-  if (!GEOAPIFY_API_KEY) {
-    console.warn('GEOAPIFY_API_KEY not set — skipping geocode, coordinates will be null');
-    return { lat: null, lon: null };
+// Dify API Key for AI Ad Creation
+const DIFY_API_KEY = process.env.DIFY_API_KEY;
+
+// Function to classify facility price tier based on name/address (simplistic example)
+function classifyPriceTier(facilityName) {
+  const lowerName = facilityName.toLowerCase();
+  if (lowerName.includes('luxury') || lowerName.includes(' premier ') || lowerName.includes(' estates') || lowerName.includes(' manors')) {
+    return 'luxury';
+  } else if (lowerName.includes('senior care') || lowerName.includes('assisted living') || lowerName.includes('community')) {
+    return 'middle-class';
+  } else {
+    return 'low-income'; // Default assumption
+  }
+}
+
+// Function to determine banner size based on target audience/price tier
+function getBannerSize(priceTier) {
+  switch (priceTier) {
+    case 'luxury':
+      return '300x250'; // Medium Rectangle
+    case 'middle-class':
+      return '728x90';  // Leaderboard
+    case 'low-income':
+      return '160x600'; // Wide Skyscraper
+    default:
+      return '300x250';
+  }
+}
+
+// Function to generate ad creatives using Dify API
+async function generateAdCreatives(facility, adsToGenerate = 3) {
+  if (!DIFY_API_KEY) {
+    console.warn('DIFY_API_KEY not set. Falling back to local ad generation.');
+    // Fallback: Generate simpler ads locally
+    const priceTier = classifyPriceTier(facility.name);
+    const bannerSize = getBannerSize(priceTier);
+    const generatedAds = [];
+    for (let i = 0; i < adsToGenerate; i++) {
+      generatedAds.push({
+        id: randomUUID(),
+        facilityId: facility.id,
+        name: `${facility.name} Ad ${i + 1} (${priceTier})`,
+        headline: `Discover ${facility.name}`,
+        body: `Experience comfortable living at ${facility.name}. ${priceTier} options available.`,
+        cta: 'Learn More',
+        status: 'draft',
+        budget: priceTier === 'luxury' ? 100 : priceTier === 'middle-class' ? 70 : 40,
+        impressions: priceTier === 'luxury' ? 2000 : priceTier === 'middle-class' ? 1500 : 1000,
+        createdAt: new Date().toISOString(),
+        bannerSize: bannerSize, // Include banner size in local fallback
+      });
+    }
+    return generatedAds;
   }
 
-  const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(address)}&filter=countrycode:us&bias=proximity:-71.0589,42.3601&apiKey=${GEOAPIFY_API_KEY}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Geoapify returned ${res.status}`);
+  console.log(`Generating ${adsToGenerate} ads for facility: ${facility.name} using Dify API`);
+  const priceTier = classifyPriceTier(facility.name);
+  const bannerSize = getBannerSize(priceTier);
+  const prompt = `
+    Generate ${adsToGenerate} ad creatives for a senior assisted living facility.
+    Facility Name: ${facility.name}
+    Address: ${facility.address}
+    Price Tier: ${priceTier} (e.g., luxury, middle-class, low-income)
+    Target Audience: Families looking for senior care, primarily women in their 50s.
+    Key Selling Points: Emphasize compassionate care, community, safety, amenities, and location benefits.
+    Desired Output Format: JSON array of objects, each with:
+      - name: A concise ad name (e.g., "Spring Special - Lexington")
+      - headline: Engaging headline (max 60 chars)
+      - body: Descriptive text (max 120 chars)
+      - cta: Call to action text (e.g., "Schedule Tour", "Learn More")
+      - status: Set to "draft"
+      - budget: Estimated daily budget ($), adjust based on price tier (luxury: 80-120, middle-class: 50-90, low-income: 30-70)
+      - impressions: Estimated daily impressions, adjust based on price tier (luxury: 1500-2500, middle-class: 1000-2000, low-income: 800-1500)
+      - bannerSize: Specify the banner size based on price tier: "300x250" for luxury, "728x90" for middle-class, "160x600" for low-income.
+      - NOTE: Do not include the media library from Dropbox. Focus solely on text content and banner size.
+  `;
+
+  try {
+    const response = await fetch('https://api.dify.ai/v1/workflow/run/clw8t5vj40002g801x8w7f2wz', { // Replace with your actual Dify workflow endpoint
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DIFY_API_KEY}`,
+      },
+      body: JSON.stringify({
+        inputs: { prompt },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Dify API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    // Assuming Dify returns a JSON array under a specific key, adjust 'data.outputs.generated_ads' as needed
+    let generatedAdsData = data.outputs?.generated_ads || data.results?.[0]?.text; 
+
+    if (!generatedAdsData) {
+        console.error("Dify response did not contain expected ad data. Raw response:", data);
+        throw new Error("Failed to parse generated ads from Dify response.");
+    }
+
+    // Attempt to parse if it's a stringified JSON
+    if (typeof generatedAdsData === 'string') {
+      try {
+        generatedAdsData = JSON.parse(generatedAdsData);
+      } catch (parseError) {
+        console.error("Failed to parse Dify JSON output:", parseError);
+        throw new Error("Dify returned malformed JSON for ads.");
+      }
+    }
+
+    // Validate and format the generated ads
+    if (!Array.isArray(generatedAdsData)) {
+        console.error("Dify response data is not an array. Data:", generatedAdsData);
+        throw new Error("Dify response is not a list of ads.");
+    }
+
+    return generatedAdsData.map((adData: any) => ({
+      id: randomUUID(),
+      facilityId: facility.id,
+      name: adData.name || `${facility.name} Ad (${priceTier})`,
+      headline: adData.headline || `Discover ${facility.name}`,
+      body: adData.body || `Experience ${priceTier} living at ${facility.name}.`,
+      cta: adData.cta || 'Learn More',
+      status: 'draft', // Always start as draft
+      budget: Number(adData.budget) || (priceTier === 'luxury' ? 100 : priceTier === 'middle-class' ? 70 : 40),
+      impressions: Number(adData.impressions) || (priceTier === 'luxury' ? 2000 : priceTier === 'middle-class' ? 1500 : 1000),
+      createdAt: new Date().toISOString(),
+      bannerSize: adData.bannerSize || bannerSize, // Use Dify's size or fallback
+    }));
+
+  } catch (err) {
+    console.error('Error calling Dify API:', err.message);
+    // Fallback logic is handled above, but log the error if Dify call fails specifically
+    throw err; // Re-throw to be caught by the main handler
   }
-  const data = await res.json();
-  const feature = data.features?.[0];
-  if (!feature) {
-    throw new Error(`No geocode results for: ${address}`);
-  }
-  const [lon, lat] = feature.geometry.coordinates;
-  return { lat, lon };
 }
+
+// POST /api/deploy-campaign — generate ads and activate them
+app.post('/api/deploy-campaign', async (req, res) => {
+  const { facilityId } = req.body;
+
+  if (!facilityId) {
+    return res.status(400).json({ error: 'facilityId is required' });
+  }
+
+  const facility = facilities.find(f => f.id === facilityId);
+  if (!facility) {
+    return res.status(404).json({ error: 'Facility not found' });
+  }
+
+  try {
+    const generatedAds = await generateAdCreatives(facility);
+
+    // Update facility's activeCampaigns to 1 (if not already)
+    if (facility.activeCampaigns === 0) {
+      facility.activeCampaigns = 1;
+      // In a real app, this would be a DB update. Here, it's just in-memory.
+    }
+
+    // Add newly generated ads to the store
+    ads.push(...generatedAds);
+
+    // Respond with success and the generated ads
+    res.status(201).json({
+      message: `Campaign deployed and ${generatedAds.length} ads created for ${facility.name}.`,
+      generatedAds,
+      updatedFacility: facility,
+    });
+
+  } catch (err) {
+    console.error('Campaign deployment failed:', err.message);
+    // If Dify failed but local fallback worked, we might still have ads.
+    // However, if *even fallback failed*, err.message will reflect that.
+    res.status(500).json({ error: `Campaign deployment failed: ${err.message}` });
+  }
+});
+
 
 // GET /api/facilities — list all facilities
 app.get('/api/facilities', (_req, res) => {
   res.json(facilities);
+});
+
+// GET /api/ads — list all ads (optionally filter by facilityId)
+app.get('/api/ads', (req, res) => {
+  const { facilityId } = req.query;
+  if (facilityId) {
+    return res.json(ads.filter(a => a.facilityId === facilityId));
+  }
+  res.json(ads);
 });
 
 // POST /api/facilities — create a new facility, geocoding its address
